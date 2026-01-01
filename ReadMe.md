@@ -1,0 +1,1 @@
+cl /EHsc /I .\include\**\* src\*.cpp main.cpp /OUT:main.exe
