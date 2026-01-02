@@ -1,8 +1,9 @@
-#include "./include/globals.h"
 #include "./include/settingsLoader.h"
+#include <vector>
+
+// #include "./include/globals.h"
 
 using namespace ScreenPen;
-//ID2D1Factory* g_factory 
 bool InitD2D(HWND hwnd) {
     HRESULT hr;
 
@@ -36,7 +37,20 @@ bool InitD2D(HWND hwnd) {
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_HOTKEY:{
+        if (wParam == 1) { // our hotkey ID
+            if (IsWindowVisible(g_settingsWnd))
+                ShowWindow(g_settingsWnd, SW_HIDE);
+            else {
+                ShowWindow(g_settingsWnd, SW_SHOW);
+                SetForegroundWindow(g_settingsWnd);
+            }
 
+        }
+            MessageBox(hwnd, L"Some Text", L"Test..", MB_OK);
+    
+        return 0;
+    }
     case WM_PAINT: {
         PAINTSTRUCT ps;
         BeginPaint(hwnd, &ps);
@@ -59,7 +73,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         EndPaint(hwnd, &ps);
         return 0;
     }
-
     case WM_TIMER: {
         bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
 
@@ -81,7 +94,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     D2D1::Point2F((FLOAT)lastClient.x, (FLOAT)lastClient.y),
                     D2D1::Point2F((FLOAT)currClient.x, (FLOAT)currClient.y)
                 });
-
                 g_lastCursor = curr;
                 // Only invalidate when a new line is added
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -101,56 +113,94 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CLOSE:
+        ShowWindow(hwnd, SW_HIDE); // hide instead of destroy
+        return 0;
+
+    case WM_DESTROY:
+        return 0;
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+
 // ------------------- Entry point -------------------
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
-    const wchar_t CLASS_NAME[] = L"OverlayWindow";
-    loadSettings(g_settings);
+    const wchar_t OVERLAY_CLASS[]  = L"OverlayWindow";
+    const wchar_t SETTINGS_CLASS[] = L"SettingsWindow";
+
+
     WNDCLASS wc = {};
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
-    wc.lpszClassName = CLASS_NAME;
-
+    wc.lpszClassName = OVERLAY_CLASS;
     RegisterClass(&wc);
+
+    WNDCLASS swc = {};
+    swc.lpfnWndProc = SettingsWndProc;
+    swc.hInstance = hInstance;
+    swc.lpszClassName = SETTINGS_CLASS;
+    RegisterClass(&swc);
+
 
     int width = GetSystemMetrics(SM_CXSCREEN);
     int height = GetSystemMetrics(SM_CYSCREEN);
 
-    HWND hwnd = CreateWindowEx(
-        0 , // Transparent click-through added later
-        // WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_APPWINDOW, // Transparent click-through added later
-        CLASS_NAME,
+    g_overlayWnd = CreateWindowEx(
+        0,
+        OVERLAY_CLASS,
         L"Overlay",
         WS_POPUP,
-        0, 0, width, height,
-        NULL,
-        NULL,
-        hInstance,
-        NULL
+        0, 0,
+        GetSystemMetrics(SM_CXSCREEN),
+        GetSystemMetrics(SM_CYSCREEN),
+        nullptr, nullptr,
+        hInstance, nullptr
     );
 
-    if (!hwnd) return 0;
+
+    if (!g_overlayWnd) return 0;
+    
+    g_settingsWnd = CreateWindowEx(
+        0,
+        SETTINGS_CLASS,
+        L"ScreenPen Settings",
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        400, 300,
+        nullptr, nullptr,
+        hInstance, nullptr
+    );
+    if (!g_settingsWnd) return 0;
 
     // Extend frame for true transparency
     MARGINS margins = { -1 };
-    DwmExtendFrameIntoClientArea(hwnd, &margins);
+    DwmExtendFrameIntoClientArea(g_overlayWnd, &margins);
 
-    if (!InitD2D(hwnd)) {
-        MessageBox(hwnd, L"Direct2D init failed", L"Error", MB_ICONERROR);
+    if (!InitD2D(g_overlayWnd)) {
+        MessageBox(g_overlayWnd, L"Direct2D init failed", L"Error", MB_ICONERROR);
         return 0;
     }
 
-    ShowWindow(hwnd, SW_SHOW);
-    LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_APPWINDOW);
+    if(RegisterHotKey(g_overlayWnd, 1, MOD_ALT ,VK_SPACE)){
+        // MessageBox(g_overlayWnd, L"Test", L"Test...", MB_OK);
+    }
 
-    UpdateWindow(hwnd);
+    ShowWindow(g_overlayWnd, SW_SHOW);
+    LONG exStyle = GetWindowLong(g_overlayWnd, GWL_EXSTYLE);
+    SetWindowLong(g_overlayWnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_APPWINDOW);
+    ShowWindow(g_settingsWnd, SW_HIDE);
+
+    UpdateWindow(g_overlayWnd);
+    UpdateWindow(g_settingsWnd); 
 
     // Enable click-through (optional)
-    SetWindowLong(hwnd, GWL_EXSTYLE,
-        GetWindowLong(hwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+    SetWindowLong(g_overlayWnd, GWL_EXSTYLE, GetWindowLong(g_overlayWnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
 
     // Timer for input polling (~60 FPS)
-    SetTimer(hwnd, 1, 16, nullptr);
+    SetTimer(g_overlayWnd, 1, 16, nullptr);
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) {
@@ -162,6 +212,7 @@ SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_TRANSPARENT | W
     if (g_brush) g_brush->Release();
     if (g_renderTarget) g_renderTarget->Release();
     if (g_factory) g_factory->Release();
+    UnregisterHotKey(nullptr, 1);
 
     return 0;
 }

@@ -1,1 +1,1 @@
-cl /EHsc /I .\include\**\* src\*.cpp main.cpp /OUT:main.exe
+cl /EHsc /I .\include\**\*.h src\settingsLoader.cpp main.cpp /link /OUT:main.exe
