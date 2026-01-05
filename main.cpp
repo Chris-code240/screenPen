@@ -1,6 +1,9 @@
 #include "./include/settingsLoader.h"
 #include <vector>
-
+#include "resource.h"  // <--- Add this at the top of your main.cpp
+#include <math.h>
+// Now this line will work:
+HICON hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(MAINICON));
 // #include "./include/globals.h"
 
 using namespace ScreenPen;
@@ -38,17 +41,32 @@ bool InitD2D(HWND hwnd) {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_HOTKEY:{
-        if (wParam == 1) { // our hotkey ID
-            if (IsWindowVisible(g_settingsWnd))
-                ShowWindow(g_settingsWnd, SW_HIDE);
-            else {
-                ShowWindow(g_settingsWnd, SW_SHOW);
-                SetForegroundWindow(g_settingsWnd);
+        switch(wParam){
+            case 1: {
+                if (IsWindowVisible(g_settingsWnd))
+                    ShowWindow(g_settingsWnd, SW_HIDE);
+                else {
+                    ShowWindow(g_settingsWnd, SW_SHOW);
+                    SetForegroundWindow(g_settingsWnd);
+                }
+                break;
+            }
+            case 2: { // CTRL+Z (undo)
+                if (g_fullLines.size()) {
+                    g_fullLines.pop_back();
+                    
+                    InvalidateRect(g_overlayWnd, nullptr, FALSE);
+                }
+                break;
+            }
+            case 3:{ // CTRL+SHIFT+Z (clear)
+                g_fullLines.clear();
+                InvalidateRect(g_overlayWnd, nullptr, FALSE);
+                break;
             }
 
         }
-            MessageBox(hwnd, L"Some Text", L"Test..", MB_OK);
-    
+           
         return 0;
     }
     case WM_PAINT: {
@@ -62,11 +80,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             g_renderTarget->Clear(D2D1::ColorF(0, 0, 0, 0.01f));
 
             // Draw all stored lines
-            for (const auto& ln : g_lines) {
-                g_brush->SetColor(g_settings.lineColor);
-                g_renderTarget->DrawLine(ln.a, ln.b, g_brush, g_settings.lineThickness);
-            }
-
+                for(const auto&fullIne : g_fullLines){
+                    for (const auto& ln : fullIne) {
+                        g_brush->SetColor(ln.color);
+                        g_renderTarget->DrawLine(ln.a, ln.b, g_brush, ln.thickness);
+                    }
+                }
+            
             g_renderTarget->EndDraw();
         }
 
@@ -89,17 +109,35 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 POINT currClient = curr;
                 ScreenToClient(hwnd, &lastClient);
                 ScreenToClient(hwnd, &currClient);
-
-                g_lines.push_back({
-                    D2D1::Point2F((FLOAT)lastClient.x, (FLOAT)lastClient.y),
-                    D2D1::Point2F((FLOAT)currClient.x, (FLOAT)currClient.y)
-                });
-                g_lastCursor = curr;
+                if (std::sqrt(((currClient.x - lastClient.x) * (currClient.x - lastClient.x)) - ((currClient.y - lastClient.y > 0) * (currClient.y - lastClient.y > 0))) > 0){
+                    Line line = {
+                            D2D1::Point2F((FLOAT)lastClient.x, (FLOAT)lastClient.y),
+                            D2D1::Point2F((FLOAT)currClient.x, (FLOAT)currClient.y), 
+                            g_settings.lineColor,
+                            g_settings.opacity,
+                            g_settings.lineThickness
+                        };
+                    if(g_fullLines.size()){
+                            g_fullLines[g_fullLines.size() - 1].push_back(line);
+                    }else{
+                        std::vector<Line> lines;
+                        lines.push_back(line);
+                        g_fullLines.push_back(lines);
+                    }
+                    g_lastCursor = curr;
                 // Only invalidate when a new line is added
-                InvalidateRect(hwnd, nullptr, FALSE);
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
             }
         } else {
             g_drawing = false;
+
+            if(g_lines.size()){
+                // pack into the fullLines
+                g_fullLines.push_back(g_lines);
+
+                g_lines.clear();
+            }
         }
 
         return 0;
@@ -118,6 +156,75 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     case WM_CLOSE:
         ShowWindow(hwnd, SW_HIDE); // hide instead of destroy
         return 0;
+    case WM_CREATE:
+    {
+        // Thickness slider
+        HWND hSlider = CreateWindowEx(
+            0, TRACKBAR_CLASS, L"",
+            WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS,
+            20, 30, 250, 30,
+            hwnd, (HMENU)ID_SLIDER_THICKNESS,
+            nullptr, nullptr
+        );
+
+        SendMessage(hSlider, TBM_SETRANGE, TRUE, MAKELONG(1, 20));
+        SendMessage(hSlider, TBM_SETPOS, TRUE, (LPARAM)g_settings.lineThickness);
+
+        // Color picker button
+        CreateWindowEx(
+            0, L"BUTTON", L"Pick Color",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            20, 80, 120, 30,
+            hwnd, (HMENU)ID_BTN_COLOR,
+            nullptr, nullptr
+        );
+    }
+    return 0;
+    case WM_HSCROLL:
+    {
+        HWND hSlider = (HWND)lParam;
+        if (GetDlgCtrlID(hSlider) == ID_SLIDER_THICKNESS) {
+            int value = (int)SendMessage(hSlider, TBM_GETPOS, 0, 0);
+            g_settings.lineThickness = (float)value;
+
+            // Redraw overlay
+            InvalidateRect(g_overlayWnd, nullptr, FALSE);
+
+            // Optional: saveSettings(g_settings);
+        }
+    }
+    return 0;
+    case WM_COMMAND:
+    {
+        if (LOWORD(wParam) == ID_BTN_COLOR) {
+            CHOOSECOLOR cc{};
+            static COLORREF customColors[16]{};
+
+            cc.lStructSize = sizeof(cc);
+            cc.lpCustColors = customColors;
+            cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+
+            cc.rgbResult = RGB(
+                (BYTE)(g_settings.lineColor.r * 255),
+                (BYTE)(g_settings.lineColor.g * 255),
+                (BYTE)(g_settings.lineColor.b * 255)
+            );
+
+            if (ChooseColor(&cc)) {
+                g_settings.lineColor = D2D1::ColorF(
+                    GetRValue(cc.rgbResult) / 255.f,
+                    GetGValue(cc.rgbResult) / 255.f,
+                    GetBValue(cc.rgbResult) / 255.f,
+                    1.0f
+                );
+
+                InvalidateRect(g_overlayWnd, nullptr, FALSE);
+
+                // Optional: saveSettings(g_settings);
+            }
+        }
+    }
+    return 0;
 
     case WM_DESTROY:
         return 0;
@@ -131,6 +238,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     const wchar_t OVERLAY_CLASS[]  = L"OverlayWindow";
     const wchar_t SETTINGS_CLASS[] = L"SettingsWindow";
 
+    INITCOMMONCONTROLSEX icc{};
+    icc.dwSize = sizeof(icc);
+    icc.dwICC = ICC_BAR_CLASSES;
+    InitCommonControlsEx(&icc);
 
     WNDCLASS wc = {};
     wc.lpfnWndProc = WndProc;
@@ -187,6 +298,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     if(RegisterHotKey(g_overlayWnd, 1, MOD_ALT ,VK_SPACE)){
         // MessageBox(g_overlayWnd, L"Test", L"Test...", MB_OK);
     }
+    RegisterHotKey(g_overlayWnd, 2, MOD_CONTROL, 'Z');              // Undo
+    RegisterHotKey(g_overlayWnd, 3, MOD_CONTROL | MOD_SHIFT, 'Z');  // Clear
+
 
     ShowWindow(g_overlayWnd, SW_SHOW);
     LONG exStyle = GetWindowLong(g_overlayWnd, GWL_EXSTYLE);
@@ -201,7 +315,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     // Timer for input polling (~60 FPS)
     SetTimer(g_overlayWnd, 1, 16, nullptr);
-
+// Example for Win32 API
+    HICON hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(MAINICON));
+    SendMessage(g_overlayWnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+    SendMessage(g_overlayWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) {
         TranslateMessage(&msg);
