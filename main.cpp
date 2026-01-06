@@ -1,10 +1,9 @@
 #include "./include/settingsLoader.h"
 #include <vector>
-#include "resource.h"  // <--- Add this at the top of your main.cpp
+#include "resource.h"  
 #include <math.h>
-// Now this line will work:
+
 HICON hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(MAINICON));
-// #include "./include/globals.h"
 
 using namespace ScreenPen;
 bool InitD2D(HWND hwnd) {
@@ -53,15 +52,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             case 2: { // CTRL+Z (undo)
                 if (g_fullLines.size()) {
+                    int s = g_fullLines.size();
                     g_fullLines.pop_back();
-                    
+                    while(!g_fullLines.empty()){
+                        if(g_fullLines[g_fullLines.size() - 1].size()){
+                            g_fullLines.pop_back();
+                            break;
+                        }
+                        g_fullLines.pop_back();
+                    }
                     InvalidateRect(g_overlayWnd, nullptr, FALSE);
                 }
                 break;
             }
             case 3:{ // CTRL+SHIFT+Z (clear)
                 g_fullLines.clear();
+                // g_fullLines.push_back({});
                 InvalidateRect(g_overlayWnd, nullptr, FALSE);
+                break;
+            }
+            case 4 : {
+                g_clickThrough = ! g_clickThrough;
+                ApplyOverlayClickThrough(g_overlayWnd );
                 break;
             }
 
@@ -103,6 +115,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (!g_drawing) {
                 g_drawing = true;
                 g_lastCursor = curr;
+                // g_fullLines.push_back({});
             } else {
                 // Convert screen coords to client coords
                 POINT lastClient = g_lastCursor;
@@ -132,12 +145,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         } else {
             g_drawing = false;
 
-            if(g_lines.size()){
                 // pack into the fullLines
-                g_fullLines.push_back(g_lines);
 
-                g_lines.clear();
+                // g_fullLines.push_back({});
+            if(g_fullLines.size()){
+
+                if(g_fullLines[g_fullLines.size() - 1].size()){
+                    g_fullLines.push_back({});
+                }
             }
+
+          
         }
 
         return 0;
@@ -235,8 +253,8 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 
 // ------------------- Entry point -------------------
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
-    const wchar_t OVERLAY_CLASS[]  = L"OverlayWindow";
-    const wchar_t SETTINGS_CLASS[] = L"SettingsWindow";
+    const wchar_t OVERLAY_CLASS[]  = L"ScreenPen";
+    const wchar_t SETTINGS_CLASS[] = L"Menu";
 
     INITCOMMONCONTROLSEX icc{};
     icc.dwSize = sizeof(icc);
@@ -262,7 +280,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     g_overlayWnd = CreateWindowEx(
         0,
         OVERLAY_CLASS,
-        L"Overlay",
+        L"ScreenPen",
         WS_POPUP,
         0, 0,
         GetSystemMetrics(SM_CXSCREEN),
@@ -300,6 +318,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     }
     RegisterHotKey(g_overlayWnd, 2, MOD_CONTROL, 'Z');              // Undo
     RegisterHotKey(g_overlayWnd, 3, MOD_CONTROL | MOD_SHIFT, 'Z');  // Clear
+    RegisterHotKey(g_overlayWnd, 4, MOD_CONTROL | MOD_SHIFT, 'C'); // toggle transparency
 
 
     ShowWindow(g_overlayWnd, SW_SHOW);
@@ -311,7 +330,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     UpdateWindow(g_settingsWnd); 
 
     // Enable click-through (optional)
-    SetWindowLong(g_overlayWnd, GWL_EXSTYLE, GetWindowLong(g_overlayWnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+    // SetWindowLong(g_overlayWnd, GWL_EXSTYLE, GetWindowLong(g_overlayWnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+    // g_clickThrough = false;
+    ApplyOverlayClickThrough(g_overlayWnd);
 
     // Timer for input polling (~60 FPS)
     SetTimer(g_overlayWnd, 1, 16, nullptr);

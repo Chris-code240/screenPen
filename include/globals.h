@@ -10,6 +10,7 @@
 #include <d2d1.h>
 #include <dwmapi.h>
 #include <iostream>
+#include <set>
 #include "./json/json.hpp"
 #include <commctrl.h>   // Trackbar
 #include <windows.h>
@@ -56,6 +57,26 @@ namespace ScreenPen{
     POINT g_lastCursor = {};
     HWND g_overlayWnd   = nullptr;
     HWND g_settingsWnd  = nullptr;
+    bool g_clickThrough = true;
+
+    void ApplyOverlayClickThrough(HWND hwnd) {
+    LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+
+    if (g_clickThrough)
+        exStyle |= WS_EX_TRANSPARENT;
+    else
+        exStyle &= ~WS_EX_TRANSPARENT;
+
+    SetWindowLong(hwnd, GWL_EXSTYLE, exStyle);
+
+    // Force Windows to re-evaluate styles
+    SetWindowPos(
+        hwnd,
+        nullptr,
+        0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
+    );
+}
 
 
 }
